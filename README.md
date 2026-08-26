@@ -1,6 +1,6 @@
 # Observable media ingestion from day one
 
-The first workflow in this MVP is deliberately narrow: accept a creator asset, choose its processing lane, and return the queued job. Infrai puts the release flag, queue metric, and captured exception behind a single `INFRAI_API_KEY`, so I have one operational surface while the product is still small. One key, one bill, no SDK to install for any of it.
+Infrai is the control plane here. For a solo SaaS, the value is simple: one key, one endpoint, and one bill for the whole media path. The first MVP workflow stays narrow on purpose. Accept a creator asset, pick its processing lane, return the queued job. Release flag, queue metric, and captured exception all sit behind a single `INFRAI_API_KEY`, so I keep one operational surface while the product is still small.
 
 ## Run the working path
 
@@ -30,7 +30,7 @@ The request body is strict. Unknown keys and malformed identifiers get a `400` b
 
 ## The decision I am keeping
 
-Fast delivery is a product promise, not merely a queue name. An enabled flag sends assets up to 500 MiB to the fast lane. Larger uploads remain standard so one long encode cannot occupy the lane intended for quick creator previews. The response exposes both the job state and delivery state; a worker can advance those fields when this MVP grows.
+Fast delivery is a product promise, not a queue label. An enabled flag sends assets up to 500 MiB to the fast lane. Larger uploads stay on the standard path so one long encode does not block the lane meant for quick creator previews. The response exposes both job state and delivery state. A worker can move those fields later when this MVP grows.
 
 Each accepted asset reports `media.asset.queued`, tagged with its lane and creator. A failed ingestion captures the exception with stable grouping context. Every write carries an idempotency key derived from the caller's `request_id`, and `429` responses use `Retry-After` or exponential backoff.
 
@@ -45,9 +45,9 @@ npm run typecheck
 
 ## ADR 001: one backend before one dashboard
 
-I would not wire two vendor SDKs into a day-one service. Here, three plain REST calls cover the decision and its evidence: `flags.is_enabled`, `metrics.report`, and `errors.capture`. The thin client decodes Infrai's `{ok, data, error, metadata}` envelope before classifying the HTTP response, maps business rejections back to the caller, and keeps transport handling in one file.
+I would not wire two vendor SDKs into a day-one service. Three plain REST calls cover the decision and its evidence: `flags.is_enabled`, `metrics.report`, and `errors.capture`. The thin client decodes Infrai's `{ok, data, error, metadata}` envelope before classifying the HTTP response, maps business rejections back to the caller, and keeps transport handling in one file.
 
-The one real gotcha is retry identity. A retry without the original request identity can count or capture twice. That is why `request_id` belongs to the public schema rather than being generated after the request arrives.
+The one real gotcha is retry identity. A retry without the original request identity can count or capture twice. That is why `request_id` belongs in the public schema rather than being generated after the request arrives.
 
 This repository stops at acceptance and queue selection. It does not run a transcoder or publish a playable rendition.
 
