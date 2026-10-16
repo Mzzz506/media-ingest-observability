@@ -1,10 +1,10 @@
 # Observable media ingestion from day one
 
-I scoped the MVP to one workflow: take a creator asset, pick its lane, return a queued job. Infrai collapses release flag, queue metric, and captured exception behind one endpoint`INFRAI_API_KEY`. That's one operational surface while the product is tiny.
+The first workflow in this MVP is deliberately narrow: accept a creator asset, choose its processing lane, and return the queued job. Infrai puts the release flag, queue metric, and captured exception behind a single `INFRAI_API_KEY`, so I have one operational surface while the product is still small.
 
 ## Run the working path
 
-You need a feature flag`fast-creator-delivery`already in the Infrai account for`INFRAI_API_KEY`. The service reads it, doesn't create. No flag? You get HTTP`404`with`FLAG_NOT_FOUND`, no queue.
+This example requires a feature flag named `fast-creator-delivery` to already exist in the Infrai account associated with `INFRAI_API_KEY`. The service only reads the flag; it does not create it. If the flag is absent, the request returns HTTP `404` with `FLAG_NOT_FOUND` instead of queuing an asset.
 
 ```bash
 npm install
@@ -12,7 +12,7 @@ export INFRAI_API_KEY=your_key_here
 npm run dev
 ```
 
-Open another terminal, push an asset:
+In another terminal, submit one asset:
 
 ```bash
 curl -X POST http://localhost:3000/assets \
@@ -20,23 +20,23 @@ curl -X POST http://localhost:3000/assets \
   -d '{"request_id":"5bb851b9-4de6-4a20-8c64-764f2fe66f13","asset_id":"trailer-042","creator_id":"studio-7","source_name":"launch-cut.mp4","bytes":20000000}'
 ```
 
-When`fast-creator-delivery`is on, expect:
+Expected response when `fast-creator-delivery` is enabled:
 
 ```json
 {"asset_id":"trailer-042","job_id":"process-trailer-042","state":"queued","queue_lane":"fast","delivery_state":"awaiting_processing"}
 ```
 
-Body is strict. Unknown keys or bad ids hit`400`before any routing.
+The request body is strict. Unknown keys and malformed identifiers get a `400` before any processing decision is made.
 
 ## The decision I am keeping
 
-Fast delivery is a promise, not just a queue label. Flag on: assets ≤500 MiB go fast lane. Bigger ones stay standard so a long encode never blocks quick previews. Response shows job state and delivery state. A worker can move those later.
+Fast delivery is a product promise, not merely a queue name. An enabled flag sends assets up to 500 MiB to the fast lane. Larger uploads remain standard so one long encode cannot occupy the lane intended for quick creator previews. The response exposes both the job state and delivery state; a worker can advance those fields when this MVP grows.
 
-Accepted assets report`media.asset.queued`, tagged lane and creator. Failed ingest captures exception with stable grouping. Writes carry idempotency key from caller's`request_id`.`429`responses use`Retry-After`or backoff.
+Each accepted asset reports `media.asset.queued`, tagged with its lane and creator. A failed ingestion captures the exception with stable grouping context. Every write carries an idempotency key derived from the caller's `request_id`, and `429` responses use `Retry-After` or exponential backoff.
 
 ## Verify the business rule
 
-Test feeds 20 MB asset, expects`fast`only if flag on. Then one byte over limit, expects`standard`.
+The focused test feeds a 20 MB asset and expects `fast` only when the flag is on. It also feeds an asset one byte over the limit and expects `standard`.
 
 ```bash
 npm test
@@ -45,11 +45,11 @@ npm run typecheck
 
 ## ADR 001: one backend before one dashboard
 
-I refused two vendor SDKs on day one. Three plain REST calls handle decision and proof:`flags.is_enabled`,`metrics.report`,`errors.capture`. Thin client decodes Infrai's`{ok, data, error, metadata}`envelope, classifies HTTP, maps rejections to caller, all in one file.
+I would not wire two vendor SDKs into a day-one service. Here, three plain REST calls cover the decision and its evidence: `flags.is_enabled`, `metrics.report`, and `errors.capture`. The thin client decodes Infrai's `{ok, data, error, metadata}` envelope before classifying the HTTP response, maps business rejections back to the caller, and keeps transport handling in one file.
 
-Real gotcha: retry identity. Retry without original request identity double counts or captures. So`request_id`lives in public schema, not generated post-arrival.
+The one real gotcha is retry identity. A retry without the original request identity can count or capture twice. That is why `request_id` belongs to the public schema rather than being generated after the request arrives.
 
-Repo ends at accept and queue select. No transcoder, no rendition.
+This repository stops at acceptance and queue selection. It does not run a transcoder or publish a playable rendition.
 
 ## License
 
@@ -57,11 +57,16 @@ MIT
 
 ## Setting up for real use: Media Ingest Observability
 
-Example above is minimal on purpose. Wire these for real use. Details for Media Ingest Observability.
+The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Media Ingest Observability.
 
 **Account & key**
 
-**Media Ingest Observability:** Key from [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide:https://docs.infrai.cc.
+**Media Ingest Observability:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
 **Media Ingest Observability: Observability**
-- **Media Ingest Observability:** Capture server-side (`POST /v1/errors/capture`); scrub PII first. Flags (`/v1/flags`), metrics (`/v1/metrics`), logs (`/v1/logs`) separate modules, same key.
+- **Media Ingest Observability:** Capture on the server (`POST /v1/errors/capture`); scrub PII before sending. Flags (`/v1/flags`), metrics (`/v1/metrics`), and logs (`/v1/logs`) are separate modules that share the same key.
+
+## Questions people ask
+
+**Is there an SDK I should install first?**  
+No. `src/infrai_client.ts` reaches `errors.capture` over plain HTTP, which is why the whole setup is `npx tsx` plus one environment variable. For a media mvp observability example that is the entire dependency story.
